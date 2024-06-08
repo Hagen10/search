@@ -7,8 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	// "strings"
-
+	"strings"
+	"path/filepath"
 	"github.com/atotto/clipboard"
 	"github.com/ktr0731/go-fuzzyfinder"
 )
@@ -19,20 +19,26 @@ type Command struct {
 	Description string
 }
 
-// List of commands
-// var commands = []Command{
-// 	{"ls", "List directory contents"},
-// 	{"cd", "Change the current directory"},
-// 	{"grep", "Search text using patterns"},
-// 	{"awk", "Pattern scanning and processing language"},
-// 	{"sed", "Stream editor for filtering and transforming text"},
-// 	{"find", "Search for files in a directory hierarchy"},
-// 	{"tar", "Archive files"},
-// 	{"curl", "Transfer data from or to a server"},
-// }
+const (
+    AppName    = "Command Search Tool"
+    Version    = "1.0.0"
+    CSVFile    = "../commands.csv"
+)
+
 
 // Function to read commands from CSV file
-func readCommandsFromCSV(filename string) ([]Command, error) {
+func readCommandsFromCSV() ([]Command, error) {
+	// Get the path of the executable
+    execPath, err := os.Executable()
+    if err != nil {
+        fmt.Println("Error:", err)
+        os.Exit(1)
+    }
+
+    // Get the directory of the executable and create the path to the CSV file
+    execDir := filepath.Dir(execPath)
+    filename := filepath.Join(execDir, CSVFile)
+
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
@@ -55,62 +61,57 @@ func readCommandsFromCSV(filename string) ([]Command, error) {
 	return commands, nil
 }
 
-// func main() {
-// 	// Use fuzzyfinder to search and select a command
-// 	idx, err := fuzzyfinder.Find(
-// 		commands,
-// 		func(i int) string {
-// 			return fmt.Sprintf("%s: %s", commands[i].Command, commands[i].Description)
-// 		},
-// 		fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
-// 			if i == -1 {
-// 				return ""
-// 			}
-// 			return fmt.Sprintf("Command: %s\nDescription: %s", commands[i].Command, commands[i].Description)
-// 		}),
-// 	)
-// 	if err != nil {
-// 		if err == fuzzyfinder.ErrAbort {
-// 			fmt.Println("Search aborted")
-// 			os.Exit(0)
-// 		} else {
-// 			log.Fatal(err)
-// 		}
-// 	}
+// Function to write a new command to the CSV file
+func writeCommandToCSV(input []string) error {
+	if len(input) == 4 {
+		command := strings.Trim(input[2], "\"")
+		description := strings.Trim(input[3], "\"")
 
-// 	selectedCommand := commands[idx].Command
+		file, err := os.OpenFile(CSVFile, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
 
-// 	// Copy the selected command to the clipboard
-// 	err = clipboard.WriteAll(selectedCommand)
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	fmt.Printf("\nSelected command copied to clipboard: %s\n", selectedCommand)
+		writer := csv.NewWriter(file)
+		defer writer.Flush()
 
-// 	// Automatically paste the command to the terminal using AppleScript
-// 	script := fmt.Sprintf(`tell application "System Events" to keystroke "v" using {command down}`)
-// 	cmd := exec.Command("osascript", "-e", script)
-// 	err = cmd.Run()
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// }
+		return writer.Write([]string{command, description})
+	}
+	
+	return fmt.Errorf("invalid input (size: %d), needs to be of format: add \"command\" \"description\"", len(input))
+}
+
+func pasteCommand(command string) error {
+	// Detect the OS and run the appropriate paste command
+	switch os := runtime.GOOS; os {
+	case "linux":
+		cmd := exec.Command("xdotool", "type", "--delay", "1", command)
+		return cmd.Run()
+	case "darwin":
+		script := `tell application "System Events" to keystroke "v" using {command down}`
+		cmd := exec.Command("osascript", "-e", script)
+		return cmd.Run()
+	default:
+		return fmt.Errorf("unsupported OS: %s", os)
+	}
+}
 
 func main() {
-	// Check for arguments
+	// Checking for arguments (e.g. adding new commands). Exits program after
 	args := os.Args
-	var filter string
 	if len(args) > 1 {
-		filter = args[1]
-
-		switch filter {
+		switch args[1] {
 		case "add":
-
+			if err := writeCommandToCSV(args); err != nil {
+				log.Fatalf("Failed to write to CSV: %v", err)
+			}
 			return
 		}
 	}
 
-	commands, err := readCommandsFromCSV("commands.csv")
+	// Otherwise, it will search through
+	commands, err := readCommandsFromCSV()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -128,6 +129,7 @@ func main() {
 			return fmt.Sprintf("Command: %s\nDescription: %s", commands[i].Command, commands[i].Description)
 		}),
 	)
+	// Quitting with ctrl + c
 	if err != nil {
 		if err == fuzzyfinder.ErrAbort {
 			fmt.Println("Search aborted")
@@ -151,26 +153,3 @@ func main() {
 		log.Fatal(err)
 	}
 }
-
-func pasteCommand(command string) error {
-	// Detect the OS and run the appropriate paste command
-	switch os := runtime.GOOS; os {
-	case "linux":
-		cmd := exec.Command("xdotool", "type", "--delay", "1", command)
-		return cmd.Run()
-	case "darwin":
-		script := fmt.Sprintf(`tell application "System Events" to keystroke "v" using {command down}`)
-		cmd := exec.Command("osascript", "-e", script)
-		return cmd.Run()
-	default:
-		return fmt.Errorf("unsupported OS: %s", os)
-	}
-}
-
-// Automatically paste the command to the terminal using AppleScript
-// 	script := fmt.Sprintf(`tell application "System Events" to keystroke "v" using {command down}`)
-// 	cmd := exec.Command("osascript", "-e", script)
-// 	err = cmd.Run()
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}

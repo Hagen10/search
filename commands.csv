@@ -1,9 +1,3 @@
 command,description
-ls,List directory contents
-cd,Change the current directory
-grep,Search text using patterns
-awk,Pattern scanning and processing language
-sed,Stream editor for filtering and transforming text
-find,Search for files in a directory hierarchy
-tar,Archive files
-curl,Transfer data from or to a server
+ls -lha,List directory contents with file sizes in human-readable form
+kubectl get pods, getting a list of all pods in kubernetes
