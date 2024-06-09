@@ -25,9 +25,8 @@ const (
     CSVFile    = "../commands.csv"
 )
 
-
-// Function to read commands from CSV file
-func readCommandsFromCSV() ([]Command, error) {
+// Gets the directory path of the executable binary 
+func getExecDir() string {
 	// Get the path of the executable
     execPath, err := os.Executable()
     if err != nil {
@@ -35,8 +34,31 @@ func readCommandsFromCSV() ([]Command, error) {
         os.Exit(1)
     }
 
+	return filepath.Dir(execPath)
+}
+
+// Function to wrap text to a specific width
+func wrapText(text string, width int) string {
+    if len(text) <= width {
+        return text
+    }
+    var wrappedText string
+    for len(text) > width {
+        splitPos := strings.LastIndex(text[:width], " ")
+        if splitPos == -1 {
+            splitPos = width
+        }
+        wrappedText += text[:splitPos] + "\n"
+        text = strings.TrimSpace(text[splitPos:])
+    }
+    wrappedText += text
+    return wrappedText
+}
+
+// Function to read commands from CSV file
+func readCommandsFromCSV() ([]Command, error) {
     // Get the directory of the executable and create the path to the CSV file
-    execDir := filepath.Dir(execPath)
+    execDir := getExecDir()
     filename := filepath.Join(execDir, CSVFile)
 
 	file, err := os.Open(filename)
@@ -67,7 +89,11 @@ func writeCommandToCSV(input []string) error {
 		command := strings.Trim(input[2], "\"")
 		description := strings.Trim(input[3], "\"")
 
-		file, err := os.OpenFile(CSVFile, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+		// Get the directory of the executable and create the path to the CSV file
+		execDir := getExecDir()
+		filename := filepath.Join(execDir, CSVFile)
+
+		file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 		if err != nil {
 			return err
 		}
@@ -126,7 +152,13 @@ func main() {
 			if i == -1 {
 				return ""
 			}
-			return fmt.Sprintf("Command: %s\nDescription: %s", commands[i].Command, commands[i].Description)
+			
+			// w is the width of the entire terminal, so the wrapping needs to be
+			// less than half of w to fit into the preview window
+			command := wrapText(commands[i].Command, w / 3)
+			description := wrapText(commands[i].Description, w / 3)
+
+			return fmt.Sprintf("Command: %s\n\nDescription: %s", command, description)
 		}),
 	)
 	// Quitting with ctrl + c
