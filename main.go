@@ -146,7 +146,9 @@ func main() {
 	idx, err := fuzzyfinder.Find(
 		commands,
 		func(i int) string {
-			return fmt.Sprintf("%s: %s", commands[i].Command, commands[i].Description)
+			// return fmt.Sprintf("%s: %s", commands[i].Command, commands[i].Description)
+			return commands[i].Command
+
 		},
 		fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 			if i == -1 {
