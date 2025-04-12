@@ -1,189 +1,175 @@
 package main
 
 import (
-	"encoding/csv"
+	"bufio"
 	"fmt"
+	"github.com/atotto/clipboard"
+	"github.com/ktr0731/go-fuzzyfinder"
+	"gopkg.in/yaml.v3"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
-	"path/filepath"
-	"github.com/atotto/clipboard"
-	"github.com/ktr0731/go-fuzzyfinder"
 )
 
-// Command struct to hold command and description
 type Command struct {
-	Command     string
-	Description string
+	Command     string `yaml:"command"`
+	Description string `yaml:"description"`
+}
+
+type CommandList struct {
+	Commands []Command `yaml:"commands"`
 }
 
 const (
-    AppName    = "Command Search Tool"
-    Version    = "1.0.0"
-    CSVFile    = "../commands.csv"
+	AppName  = "Command Search Tool"
+	Version  = "2.0.0"
+	YAMLFile = "../commands.yml"
 )
 
-// Gets the directory path of the executable binary 
-func getExecDir() string {
-	// Get the path of the executable
-    execPath, err := os.Executable()
-    if err != nil {
-        fmt.Println("Error:", err)
-        os.Exit(1)
-    }
-
-	return filepath.Dir(execPath)
+func getYAMLPath() string {
+	execPath, _ := os.Executable()
+	return filepath.Join(filepath.Dir(execPath), YAMLFile)
 }
 
-// Function to wrap text to a specific width
 func wrapText(text string, width int) string {
-    if len(text) <= width {
-        return text
-    }
-    var wrappedText string
-    for len(text) > width {
-        splitPos := strings.LastIndex(text[:width], " ")
-        if splitPos == -1 {
-            splitPos = width
-        }
-        wrappedText += text[:splitPos] + "\n"
-        text = strings.TrimSpace(text[splitPos:])
-    }
-    wrappedText += text
-    return wrappedText
-}
-
-// Function to read commands from CSV file
-func readCommandsFromCSV() ([]Command, error) {
-    // Get the directory of the executable and create the path to the CSV file
-    execDir := getExecDir()
-    filename := filepath.Join(execDir, CSVFile)
-
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
+	if len(text) <= width {
+		return text
 	}
-	defer file.Close()
-
-	reader := csv.NewReader(file)
-	records, err := reader.ReadAll()
-	if err != nil {
-		return nil, err
-	}
-
-	var commands []Command
-	for _, record := range records[1:] { // skip the header
-		commands = append(commands, Command{
-			Command:     record[0],
-			Description: record[1],
-		})
-	}
-	return commands, nil
-}
-
-// Function to write a new command to the CSV file
-func writeCommandToCSV(input []string) error {
-	if len(input) == 4 {
-		command := strings.Trim(input[2], "\"")
-		description := strings.Trim(input[3], "\"")
-
-		// Get the directory of the executable and create the path to the CSV file
-		execDir := getExecDir()
-		filename := filepath.Join(execDir, CSVFile)
-
-		file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
-		if err != nil {
-			return err
+	var wrappedText string
+	for len(text) > width {
+		splitPos := strings.LastIndex(text[:width], " ")
+		if splitPos == -1 {
+			splitPos = width
 		}
-		defer file.Close()
-
-		writer := csv.NewWriter(file)
-		defer writer.Flush()
-
-		return writer.Write([]string{command, description})
+		wrappedText += text[:splitPos] + "\n"
+		text = strings.TrimSpace(text[splitPos:])
 	}
-	
-	return fmt.Errorf("invalid input (size: %d), needs to be of format: add \"command\" \"description\"", len(input))
+	wrappedText += text
+	return wrappedText
+}
+
+func readCommands() ([]Command, error) {
+	data, err := os.ReadFile(getYAMLPath())
+	if err != nil {
+		return nil, err
+	}
+	var cmdList CommandList
+	if err := yaml.Unmarshal(data, &cmdList); err != nil {
+		return nil, err
+	}
+	return cmdList.Commands, nil
+}
+
+func writeCommands(commands []Command) error {
+	data, err := yaml.Marshal(CommandList{Commands: commands})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(getYAMLPath(), data, 0644)
 }
 
 func pasteCommand(command string) error {
-	// Detect the OS and run the appropriate paste command
 	switch os := runtime.GOOS; os {
 	case "linux":
-		cmd := exec.Command("xdotool", "type", "--delay", "1", command)
-		return cmd.Run()
+		return exec.Command("xdotool", "type", "--delay", "1", command).Run()
 	case "darwin":
 		script := `tell application "System Events" to keystroke "v" using {command down}`
-		cmd := exec.Command("osascript", "-e", script)
-		return cmd.Run()
+		return exec.Command("osascript", "-e", script).Run()
 	default:
 		return fmt.Errorf("unsupported OS: %s", os)
 	}
 }
 
-func main() {
-	// Checking for arguments (e.g. adding new commands). Exits program after
-	args := os.Args
-	if len(args) > 1 {
-		switch args[1] {
-		case "add":
-			if err := writeCommandToCSV(args); err != nil {
-				log.Fatalf("Failed to write to CSV: %v", err)
-			}
-			return
-		}
+func promptEdit(c Command) Command {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Edit command [%s]: ", c.Command)
+	cmdInput, _ := reader.ReadString('\n')
+	cmdInput = strings.TrimSpace(cmdInput)
+	if cmdInput != "" {
+		c.Command = cmdInput
 	}
 
-	// Otherwise, it will search through
-	commands, err := readCommandsFromCSV()
+	fmt.Printf("Edit description [%s]: ", c.Description)
+	descInput, _ := reader.ReadString('\n')
+	descInput = strings.TrimSpace(descInput)
+	if descInput != "" {
+		c.Description = descInput
+	}
+	return c
+}
+
+func main() {
+	// Add new command from args (e.g. `add "ls -la" "List files"`)
+	args := os.Args
+	if len(args) == 4 && args[1] == "add" {
+		cmd := Command{Command: args[2], Description: args[3]}
+		cmds, _ := readCommands()
+		cmds = append(cmds, cmd)
+		_ = writeCommands(cmds)
+		fmt.Println("Command added.")
+		return
+	}
+
+	cmds, err := readCommands()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Use fuzzyfinder to search and select a command
-	idx, err := fuzzyfinder.Find(
-		commands,
-		func(i int) string {
-			// return fmt.Sprintf("%s: %s", commands[i].Command, commands[i].Description)
-			return commands[i].Command
-
-		},
+	// Fuzzy select
+	index, err := fuzzyfinder.Find(
+		cmds,
+		func(i int) string { return cmds[i].Command },
 		fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
-			if i == -1 {
+			if i < 0 {
 				return ""
 			}
-			
 			// w is the width of the entire terminal, so the wrapping needs to be
 			// less than half of w to fit into the preview window
-			command := wrapText(commands[i].Command, w / 3)
-			description := wrapText(commands[i].Description, w / 3)
-
-			return fmt.Sprintf("Command: %s\n\nDescription: %s", command, description)
+			cmd := wrapText(cmds[i].Command, w/3)
+			desc := wrapText(cmds[i].Description, w/3)
+			return fmt.Sprintf("Command: %s\n\nDescription: %s", cmd, desc)
 		}),
 	)
-	// Quitting with ctrl + c
 	if err != nil {
 		if err == fuzzyfinder.ErrAbort {
 			fmt.Println("Search aborted")
-			os.Exit(0)
+			return
 		} else {
 			log.Fatal(err)
 		}
-	}
-
-	selectedCommand := commands[idx].Command
-
-	// Copy the selected command to the clipboard
-	err = clipboard.WriteAll(selectedCommand)
-	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("\nSelected command copied to clipboard: %s\n", selectedCommand)
 
-	// Automatically paste the command to the terminal
-	if err := pasteCommand(selectedCommand); err != nil {
-		log.Fatal(err)
+	selected := cmds[index]
+	fmt.Printf("\nSelected:\n%s - %s\n", selected.Command, selected.Description)
+
+	fmt.Print("Press [Enter] to copy/paste, [d] to delete, [e] to edit: ")
+	choice := ""
+	fmt.Scanln(&choice)
+
+	switch choice {
+	case "d":
+		cmds = append(cmds[:index], cmds[index+1:]...)
+		if err := writeCommands(cmds); err != nil {
+			log.Fatal("Delete failed:", err)
+		}
+		fmt.Println("Deleted successfully.")
+	case "e":
+		cmds[index] = promptEdit(cmds[index])
+		if err := writeCommands(cmds); err != nil {
+			log.Fatal("Edit failed:", err)
+		}
+		fmt.Println("Edited and saved.")
+	default:
+		if err := clipboard.WriteAll(selected.Command); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("Copied to clipboard: %s\n", selected.Command)
+		if err := pasteCommand(selected.Command); err != nil {
+			log.Fatal(err)
+		}
 	}
 }

