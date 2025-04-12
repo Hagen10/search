@@ -1,111 +1,108 @@
 package main
 
 import (
-	"encoding/csv"
 	"fmt"
+	"github.com/atotto/clipboard"
+	"github.com/ktr0731/go-fuzzyfinder"
+	"gopkg.in/yaml.v3"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
-	"path/filepath"
-	"github.com/atotto/clipboard"
-	"github.com/ktr0731/go-fuzzyfinder"
 )
 
-// Command struct to hold command and description
 type Command struct {
-	Command     string
-	Description string
+	Command     string `yaml:"command"`
+	Description string `yaml:"description"`
+}
+
+type CommandList struct {
+	Commands []Command `yaml:"commands"`
 }
 
 const (
-    AppName    = "Command Search Tool"
-    Version    = "1.0.0"
-    CSVFile    = "../commands.csv"
+	AppName  = "Command Search Tool"
+	Version  = "2.0.0"
+	YAMLFile = "../commands.yml"
 )
 
-// Gets the directory path of the executable binary 
+// Gets the directory path of the executable binary
 func getExecDir() string {
 	// Get the path of the executable
-    execPath, err := os.Executable()
-    if err != nil {
-        fmt.Println("Error:", err)
-        os.Exit(1)
-    }
-
+	execPath, err := os.Executable()
+	if err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
 	return filepath.Dir(execPath)
 }
 
 // Function to wrap text to a specific width
 func wrapText(text string, width int) string {
-    if len(text) <= width {
-        return text
-    }
-    var wrappedText string
-    for len(text) > width {
-        splitPos := strings.LastIndex(text[:width], " ")
-        if splitPos == -1 {
-            splitPos = width
-        }
-        wrappedText += text[:splitPos] + "\n"
-        text = strings.TrimSpace(text[splitPos:])
-    }
-    wrappedText += text
-    return wrappedText
+	if len(text) <= width {
+		return text
+	}
+	var wrappedText string
+	for len(text) > width {
+		splitPos := strings.LastIndex(text[:width], " ")
+		if splitPos == -1 {
+			splitPos = width
+		}
+		wrappedText += text[:splitPos] + "\n"
+		text = strings.TrimSpace(text[splitPos:])
+	}
+	wrappedText += text
+	return wrappedText
 }
 
-// Function to read commands from CSV file
-func readCommandsFromCSV() ([]Command, error) {
-    // Get the directory of the executable and create the path to the CSV file
-    execDir := getExecDir()
-    filename := filepath.Join(execDir, CSVFile)
+func readCommandsFromYAML() ([]Command, error) {
+	// Get the directory of the executable and create the path to the YAML file
+	execDir := getExecDir()
+	filename := filepath.Join(execDir, YAMLFile)
 
-	file, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	reader := csv.NewReader(file)
-	records, err := reader.ReadAll()
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
 
-	var commands []Command
-	for _, record := range records[1:] { // skip the header
-		commands = append(commands, Command{
-			Command:     record[0],
-			Description: record[1],
-		})
+	var cmdList CommandList
+	if err := yaml.Unmarshal(data, &cmdList); err != nil {
+		return nil, err
 	}
-	return commands, nil
+
+	return cmdList.Commands, nil
 }
 
-// Function to write a new command to the CSV file
-func writeCommandToCSV(input []string) error {
+// Function to write a new command to the YAML file
+func writeCommandToYAML(input []string) error {
 	if len(input) == 4 {
-		command := strings.Trim(input[2], "\"")
-		description := strings.Trim(input[3], "\"")
+		newCommand := Command{
+			Command:     strings.Trim(input[2], "\""),
+			Description: strings.Trim(input[3], "\""),
+		}
 
-		// Get the directory of the executable and create the path to the CSV file
+		// Get the directory of the executable and create the path to the YAML file
 		execDir := getExecDir()
-		filename := filepath.Join(execDir, CSVFile)
+		filename := filepath.Join(execDir, YAMLFile)
 
-		file, err := os.OpenFile(filename, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
+		// Read existing commands
+		commands, _ := readCommandsFromYAML()
+
+		// Append new command
+		commands = append(commands, newCommand)
+
+		cmdList := CommandList{Commands: commands}
+		data, err := yaml.Marshal(&cmdList)
 		if err != nil {
 			return err
 		}
-		defer file.Close()
 
-		writer := csv.NewWriter(file)
-		defer writer.Flush()
-
-		return writer.Write([]string{command, description})
+		return os.WriteFile(filename, data, 0644)
 	}
-	
-	return fmt.Errorf("invalid input (size: %d), needs to be of format: add \"command\" \"description\"", len(input))
+
+	return fmt.Errorf("invalid input (size: %d), expected format: add \"command\" \"description\"", len(input))
 }
 
 func pasteCommand(command string) error {
@@ -129,37 +126,34 @@ func main() {
 	if len(args) > 1 {
 		switch args[1] {
 		case "add":
-			if err := writeCommandToCSV(args); err != nil {
-				log.Fatalf("Failed to write to CSV: %v", err)
+			if err := writeCommandToYAML(args); err != nil {
+				log.Fatalf("Failed to write to YAML: %v", err)
 			}
+			fmt.Println("Command added successfully.")
 			return
 		}
 	}
 
 	// Otherwise, it will search through
-	commands, err := readCommandsFromCSV()
+	commands, err := readCommandsFromYAML()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Use fuzzyfinder to search and select a command
 	idx, err := fuzzyfinder.Find(
 		commands,
 		func(i int) string {
 			// return fmt.Sprintf("%s: %s", commands[i].Command, commands[i].Description)
 			return commands[i].Command
-
 		},
 		fuzzyfinder.WithPreviewWindow(func(i, w, h int) string {
 			if i == -1 {
 				return ""
 			}
-			
 			// w is the width of the entire terminal, so the wrapping needs to be
 			// less than half of w to fit into the preview window
-			command := wrapText(commands[i].Command, w / 3)
-			description := wrapText(commands[i].Description, w / 3)
-
+			command := wrapText(commands[i].Command, w/3)
+			description := wrapText(commands[i].Description, w/3)
 			return fmt.Sprintf("Command: %s\n\nDescription: %s", command, description)
 		}),
 	)
@@ -174,10 +168,8 @@ func main() {
 	}
 
 	selectedCommand := commands[idx].Command
-
 	// Copy the selected command to the clipboard
-	err = clipboard.WriteAll(selectedCommand)
-	if err != nil {
+	if err := clipboard.WriteAll(selectedCommand); err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("\nSelected command copied to clipboard: %s\n", selectedCommand)
