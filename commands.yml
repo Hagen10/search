@@ -1,8 +1,6 @@
 commands:
     - command: ls -lha
       description: List directory contents with file sizes in human-readable form
-    - command: cd
-      description: Change directory
     - command: kubectl get pods
       description: getting a list of all pods in the kubernetes cluster
     - command: sudo nmap -sU MACINE_IP
