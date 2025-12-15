@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sort"
 )
 
 type Command struct {
@@ -101,6 +102,18 @@ func promptEdit(c Command) Command {
 	return c
 }
 
+// Function to remove a potential "sudo " before sorting the commands
+func stripSudo(s string) string {
+    s = strings.TrimSpace(s)
+
+    // Case-insensitive check for leading "sudo "
+    if strings.HasPrefix(strings.ToLower(s), "sudo ") {
+        s = s[5:] // remove "sudo " from the sorting
+    }
+
+    return s
+}
+
 func main() {
 	// Add new command from args (e.g. `add "ls -la" "List files"`)
 	args := os.Args
@@ -117,6 +130,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Sorting commands alphabetically (ignoring sudo prefixes)
+	sort.Slice(cmds, func(i, j int) bool {
+		return stripSudo(cmds[i].Command) > stripSudo(cmds[j].Command)
+	})
 
 	// Fuzzy select
 	index, err := fuzzyfinder.Find(
